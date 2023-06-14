@@ -1,0 +1,12 @@
+{
+  "type": "service_account",
+  "project_id": "qa-smart-automation",
+  "private_key_id": "baa4749305466bb0ad42c2009063e0ec1fe2c89e",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCxFw/ozUovEqVN\noiEgHvbZNDtKoOYwe69cws5tLhGB4PYRUWMi3pUnWoC6cm0RPLVBjlsC1YRza+5O\nkYEip9jfn6GJMEqb6J5zMLeiX6nP7R5Zfvp7vAKf9M7Tqbm3F4u99MHG/zoQnDyS\n3vyeNQi/L1Dp2I0+EE847bSxsiTa+akSeYmN2gqlyxrFjw+MyQHXO4+baxrv/McO\nnGwOt+y4zVIFCo3xSTSWsTfkHGU6CnmtFD22fWy75Hbp6zJdWnTyhVds4d59g9Tu\nvuXRn2tPnGOM1Be25Z/MHW3TerXL1gsKbldh5YnepYKIoX27TcbEF7UMxUOasurW\ndxDQq2Z5AgMBAAECggEACXued3nrjtYk+FSsb24ZC9jqX+NHA37Sc7/FLAvufHgr\nO3j41QvHcuih9UBeKzEg1HANQZT+pB7TqQaaCRALfGLg7ia7qA07bUtFJuXDT+x2\n1pYGtb+Dzt4q54l/XDJflX4/Lir9CGZFYoJpIDoSZaJ6Zu5/FonrCoJegOSoNcck\ngi9KtxJcVs5EyOi+AhPXcLnC2ZREPyrsEQMYsFeJ7NabVC76O9MAVjQBhBjyQB/s\nxZgpHGooGGqZ600wor6yAlTcjlpfvLvCwSunrAM3r829cci8SW/pHkY4Tj5uEqw9\nzF1wbWL3caXhu6+zP/+6//LrGX3H5xZjHjWJHMzy3QKBgQDzV6sOdlGpotKvjmTS\n5OfAgS3UuHyXb1SO1Duwk/+ViQeIbuFzi1TJaJDQVCXCiEdjy/Pk35zpe0ZVfAVp\nUVM2UMMJ+MmXbz8M+jlPpjheMcbz1w8umDiHzkLCJEpWHDu+oAQlBm8qa3ouc4i0\nVYql26vy3waoiEmLL7+Azz1+6wKBgQC6TS6PK2mb8Mqb264lSDpuemVMHROVW4PJ\nlj/8hB0XCesJW4SfAEdcuMYSrHsrWRbsc5CiRQHinFHNuPO5CFebOpAnBiPEdVIq\n70EdkZg9SgXmGAe5j3eGVQ85G/Uh4LeEDyQQ6qDmEKrIYHLWSYw6kJlJ2D6vubsS\n5ZBwgwH/KwKBgQCmKbP9cR+8NRmmlRYVyAbUNaFlAwDYq0XTLesAXV8F7gb9y7EZ\nJAgma8eO6hbKqiINbERDgcn0yJ+zWbecPdMTYLx9v6twQ5+LLgYadEdDUrwm3zBX\nwcvAOEDvrrYv7KGDPmL2IVmhXriUpYGwmkTNkp3sfwxd4opNh7I9s8WrNwKBgGy8\nXZ9sfDBrIyZC2uqhtJEE2RjKo8J57np7Oo984KmwvUDx7H8NH5mrstf1WdJcJjgN\n324GjuofyNMkzwPBLbjJPpe4SqoAu9uZV00VzGCBUt4QSnnwlZePD9qKSdHjIdlv\nKOLCvvRo5/UZ7gzKUpFgEkf6ceQIqHqICHzSyhiPAoGAWO/IUtkvrQQob5osNeLW\nImZxsGQMVKkuMB0xlyYMnCkAn1Y0kqaANovcS2GMS6CGRO+WY1LjHnzYg75Z8GEd\nJ+BkZ5c/P9O4mXh0Cg4GhPY9f0OwY9ONqSBASVQytqlyVLKjMcpiXvskZaMi2Ojo\nuxJcVCh2OlfQ6F9rpTw36TY=\n-----END PRIVATE KEY-----\n",
+  "client_email": "sprad-srv-acc@qa-smart-automation.iam.gserviceaccount.com",
+  "client_id": "107125980971579555470",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/sprad-srv-acc%40qa-smart-automation.iam.gserviceaccount.com"
+}
