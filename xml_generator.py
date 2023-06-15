@@ -11,6 +11,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 import getpass
 import socket
+import threading
+import queue
 import requests
 from xml.dom import minidom
 import signal
@@ -206,7 +208,7 @@ class ValueEditor:
 
 class XmlGen:
 
-    def __init__(self, config, xml, service, webui, ss, tab, user, port, auth, sheet, failures_only, part_way, local):
+    def __init__(self, config, xml, service, webui, ss, tab, user, port, auth, sheet, failures_only, part_way, local, multi):
         self.p = Printer()
         self.creds = creds
         self.service = service
@@ -224,6 +226,7 @@ class XmlGen:
         self.failures = failures_only
         self.part_way = part_way
         self.local = local
+        self.multi = multi
         self.batch_ul = int(self.config['exe_actions']['batch_ul'])
         self.is_query = False
         self.ss = ss
@@ -232,6 +235,10 @@ class XmlGen:
             self.tab = tab
             try:
                 self.hdrs = self.get_sheet_headers(self.sheet)
+                for item in self.hdrs:
+                    if '.' in item:
+                        self.p.print_stderr(1, f'SHEET ERROR: Old Sheet used')
+                        self.p.print_stderr(2, f'You appear to be using an old sheet template, there is a column mismatch - please use the latest Google sheet template')
             except Exception as e:
                 d = dict(Sheetname=self.ss)
                 self.p.handle_traceback(e, d)
@@ -298,10 +305,17 @@ class XmlGen:
         return rows.get('values', []), columns.get('values', [])
 
     def split_rows(self, rows, num_threads):
-        chunk_size = len(rows) // num_threads
-        lists = [rows[i:i + chunk_size] for i in range(1, len(rows), chunk_size)]
+        n = len(rows)
+        sublist_size = n // num_threads  # Integer division
+        remainder = n % num_threads
+        sublists = []
+        start_index = 0
+        for i in range(num_threads):
+            sublist_length = sublist_size + (1 if i < remainder else 0)
+            sublists.append(rows[start_index:start_index + sublist_length])
+            start_index += sublist_length
+        return sublists
 
-        return lists
 
     def xicom_edits(self, row_dict):
 
@@ -334,115 +348,6 @@ class XmlGen:
 
         return row_dict
 
-    def bulk_send_function(self, rows, list_len, q):
-
-        i = None
-        make_edit = False
-
-        multi_device_sheet = self.check_sheet_headers()
-
-        col_letter = string.ascii_uppercase[self.hdrs.index("ATOM_result")]
-
-        output_list = []
-
-        if 'CHFLocation' in self.hdrs:
-            make_edit = True
-
-        try:
-            for i, row in enumerate(rows):
-                row_dict = dict(zip(self.hdrs, row))
-
-                if self.part_way:
-                    executed_row = row_dict.get('ATOM_result', None)
-
-                    if executed_row:
-                        output_list.append([executed_row])
-                        continue
-
-                elif self.failures:
-                    executed_row = row_dict.get('ATOM_result', None)
-
-                    if executed_row.endswith('ACCEPTED'):
-                        batch_list.append([executed_row])
-                        continue
-
-                if multi_device_sheet:
-                    if (len(row_dict['ImportMPxN']) > 10):
-                        bd = eval(self.config['xml_jsons'][f'{self.xml.upper()}_ESME'])
-                    else:
-                        bd = eval(self.config['xml_jsons'][f'{self.xml.upper()}_GSME'])
-                else:
-                    bd = eval(self.config['xml_jsons'][self.xml.upper()])
-
-                if make_edit:
-                    row_dict = self.xicom_edits(row_dict)
-
-                bd = self.ve.replace_placeholder_values(bd, row_dict)
-
-                short_xml_name = list(bd.keys())[0]
-                hd = self.ve.append_hdr_items(self.hdr, short_xml_name.split('_')[0])
-
-                xml_str = self.create_xml(hd, bd)
-
-                if self.local:
-                    self.p.print_stdout(2, xml_str)
-
-                outcome = None
-
-                try:
-                    outcome, req_id, failure_string = self.send_request(short_xml_name, xml_str)
-                except Exception as e:
-                    d = dict(short_xml_name=short_xml_name, xml_str=''.join(xml_str.split()))
-                    self.p.handle_traceback(e, d)
-                    if socket.gaierror:
-                        connected = self.disco_loop()
-                        if connected:
-                            outcome, req_id, failure_string = self.send_request(short_xml_name, xml_str)
-                    if requests.exceptions.ConnectionError:
-                        connected = self.disco_loop()
-                        if connected:
-                            outcome, req_id, failure_string = self.send_request(short_xml_name, xml_str)
-                    else:
-                        self.p.print_stderr(1, f'SEND FAILURE: bulk_send_function: {e}')
-                        pass
-
-
-                if outcome:
-                    if self.local:
-                        self.p.print_stdout(2, f'Sheet row {i + 2} {outcome}')
-                    output_list.append([outcome])
-
-                else:
-                    try:
-                        outcome, req_id, failure_string = self.get_new_xml_response(short_xml_name, xml_str)
-                        if outcome:
-                            if self.local:
-                                self.p.print_stdout(2, f'Sheet row {i + 2} {outcome}')
-                            output_list.append([outcome])
-                        else:
-                            if self.local:
-                                self.p.print_stdout(2, f'Sheet row {i + 2} FAILED')
-                            output_list.append(['FAILED'])
-                    except Exception as e:
-                        d = dict(short_xml_name=short_xml_name, xml_str=''.join(xml_str.split()))
-                        self.p.handle_traceback(e, d)
-                        pass
-                if keyboard.is_pressed('q'):
-                    self.p.print_stdout(2, "'Q' pressed, exiting script early")
-                    break
-        except SigTermException as e:
-            self.p.handle_traceback(e)
-            self.p.print_stderr(1, f'Received signal interrupt, exiting thread!')
-        except KeyboardInterrupt as e:
-            self.p.handle_traceback(e)
-            self.p.print_stderr(1, f'Received interrupt, exiting thread!')
-        except Exception as e:
-            self.p.handle_traceback(e)
-            self.p.print_stderr(1, F'LOOP ERROR: bulk_send_function: {e}')
-
-        q.put((col_letter, i + (list_len+3), output_list))
-        q.put(None)
-
     def process_split_rows(self, lists):
 
         processes = []
@@ -450,8 +355,8 @@ class XmlGen:
         list_len = 0
 
         for sublist in lists:
-            processes.append(multiprocessing.Process(target=self.bulk_send_function, args=(sublist, list_len, self.q)))
-            list_len = list_len + len(sublist)
+            processes.append(multiprocessing.Process(target=self.process_sequential_rows, args=(sublist, list_len, self.q)))
+            list_len += len(sublist)
 
         for process in processes:
             process.start()
@@ -472,12 +377,16 @@ class XmlGen:
                         if continue_run == 'FALSE':
                             self.p.print_stdout(2, "Spreadsheet stop flag has been selected, exiting run")
                             break
+                except queue.Empty:
+                    pass
                 except Exception as e:
                     if not notified:
                         self.p.handle_traceback(e)
-                        self.p.print_stderr(1, F'LOOP ERROR: process_split_rows: error: {e}')
+                        self.p.print_stderr(1, F'LOOP ERROR: process_split_rows: err: {e}')
                         notified = True
-                    pass
+                        pass
+                    else:
+                        pass
         except SigTermException as e:
             self.p.handle_traceback(e)
             time.sleep(3)
@@ -516,7 +425,7 @@ class XmlGen:
             self.p.print_stderr(1, f'Config file Exception: {e}')
             self.p.print_stderr(2, f'XML {self.xml} Config Exception: Please contact the ATOM team')
 
-    def process_sequential_rows(self, rows):
+    def process_sequential_rows(self, rows, list_len=None, q=None):
 
         i = None
         xml_body_template_esme_credit = None
@@ -529,6 +438,7 @@ class XmlGen:
         xml_body_template_gsme = None
         xml_body_template_esme_dual = None
 
+        in_run_throttle = None
         continue_run = True
         col_letter = string.ascii_uppercase[self.hdrs.index("ATOM_result")]
 
@@ -552,11 +462,11 @@ class XmlGen:
         fail_count = 0
         remaining = 0
         estimated_date_time = datetime.now()
-        total_rows = len(rows[1:])
+        total_rows = len(rows)
         loop_start_time = time.time()
 
         try:
-            for i, row in enumerate(rows[1:]):
+            for i, row in enumerate(rows):
 
                 xml_body = None
                 row_dict = dict(zip(self.hdrs, row))
@@ -564,7 +474,10 @@ class XmlGen:
                 if self.is_query:
                     if any(value is None for value in row_dict.values()):
                         fail_count += 1
-                        batch_list.append(['FAILED'])
+                        if q:
+                            batch_list.append([f'FAILED - row {row_dict["TRUE"]}'])
+                        else:
+                            batch_list.append([f'FAILED'])
                         continue
 
                 if self.part_way:
@@ -575,7 +488,11 @@ class XmlGen:
                             pass_count += 1
                         else:
                             fail_count += 1
-                        batch_list.append([executed_row])
+
+                        if q:
+                            batch_list.append([f'{executed_row} - row {row_dict["TRUE"]}'])
+                        else:
+                            batch_list.append([executed_row])
                         continue
 
                 elif self.failures:
@@ -583,7 +500,10 @@ class XmlGen:
 
                     if executed_row.endswith('ACCEPTED'):
                         pass_count += 1
-                        batch_list.append([executed_row])
+                        if q:
+                            batch_list.append([f'{executed_row} - row {row_dict["TRUE"]}'])
+                        else:
+                            batch_list.append([executed_row])
                         continue
 
                 if all(val is None or val == '' for val in row_dict.values()):
@@ -689,7 +609,10 @@ class XmlGen:
                         fail_count += 1
 
                     remaining = total_rows-i
-                    batch_list.append([outcome])
+                    if q:
+                        batch_list.append([f'{outcome} - row {row_dict["TRUE"]}'])
+                    else:
+                        batch_list.append([outcome])
                 else:
                     try:
                         outcome, req_id, failure_string = self.get_new_xml_response(self.xml, xml_str)
@@ -698,10 +621,17 @@ class XmlGen:
                                 pass_count += 1
                             else:
                                 fail_count += 1
-                            batch_list.append([outcome])
+
+                            if q:
+                                batch_list.append([f'{outcome} - row {row_dict["TRUE"]}'])
+                            else:
+                                batch_list.append([outcome])
                         else:
                             fail_count += 1
-                            batch_list.append(['FAILED'])
+                            if q:
+                                batch_list.append([f'FAILED - row {row_dict["TRUE"]}'])
+                            else:
+                                batch_list.append(['FAILED'])
                         remaining = total_rows - i
                     except Exception as e:
                         d = dict(xml=self.xml, xml_str=''.join(xml_str.split()))
@@ -710,24 +640,57 @@ class XmlGen:
 
 
                 if len(batch_list) >= self.batch_ul:
+                    if not self.input_queue.empty():
+                        input_text = self.input_queue.get()
+                        if input_text.startswith('SLEEP'):
+                            try:
+                                in_run_throttle = float(input_text.split(':')[1])
+                                self.p.print_stdout(2, f"Received SLEEP notification, each iteration will now sleep for - {in_run_throttle} seconds")
+                                self.p.print_stdout(2, f"To reset SLEEP notification, send SLEEP:0 to stdin")
+                            except ValueError:
+                                self.p.print_stdout(2, f"Received incompatible SLEEP notification - number must be an int or a float, run will continue")
+                                self.p.print_stdout(2, f"SLEEP notification example - SLEEP:0.2")
+                        if input_text.startswith('STOP'):
+                            self.p.print_stdout(2, "Received STOP run notifictation, exiting run")
+                            break
+                        if input_text.startswith('PAUSE'):
+                            self.p.print_stdout(2, "Received PAUSE run notifictation, pausing run")
+                            self.p.print_stdout(2, "To un-pause the run send CONTINUE to stdin (may take up to 30 seconds to continue")
+                            while True:
+                                input_text = self.input_queue.get()
+                                if input_text.startswith('CONTINUE'):
+                                    self.p.print_stdout(2, "Received CONTINUE run notifictation, continuing run")
+                                    break
+                                else:
+                                    time.sleep(30)
+
+
                     elapsed_time = time.time() - loop_start_time
                     estimated_completion_time_in_seconds = (elapsed_time / i) * (total_rows - i)
                     estimated_date_time = datetime.now() + timedelta(seconds=estimated_completion_time_in_seconds)
 
-                    if not self.is_query:
-                        continue_run = self.update_sheet_cols(col_letter, i+3, batch_list)
-                        batch_list.clear()
+                    if not q:
+                        if not self.is_query:
+                            continue_run = self.update_sheet_cols(col_letter, i+3, batch_list)
+                            batch_list.clear()
 
+                            if continue_run == 'FALSE':
+                                self.p.print_stdout(2, "Spreadsheet stop flag has been selected, exiting run")
+                                break
+                        else:
+                            batch_list.clear()
+
+                    if q:
                         if continue_run == 'FALSE':
                             self.p.print_stdout(2, "Spreadsheet stop flag has been selected, exiting run")
                             break
-                    else:
-                        batch_list.clear()
 
-                    if remaining - 1 != 0:
+                    elif remaining - 1 != 0:
                         self.p.print_stdout(2, f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:{remaining-1}  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}')
 
-                if self.config['exe_actions']['wait_throttle']:
+                if in_run_throttle:
+                    time.sleep(float(in_run_throttle))
+                elif self.config['exe_actions']['wait_throttle']:
                     time.sleep(float(self.config['exe_actions']['wait_throttle']))
 
                 if keyboard.is_pressed('q'):
@@ -749,11 +712,17 @@ class XmlGen:
             self.p.handle_traceback(e)
             self.p.print_stderr(1, F'LOOP ERROR3: process_sequential_rows: {e}')
 
-        if self.is_query:
-            self.p.print_std(2, f'Completed {i} rows')
-        else:
-            self.p.print_stdout(2, f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:{remaining-1}  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}')
-            self.update_sheet_cols(col_letter, i+3, batch_list)
+        if not q:
+            if self.is_query:
+                self.p.print_std(2, f'Completed {i} rows')
+            else:
+                self.p.print_stdout(2, f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:{remaining-1}  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}')
+                self.update_sheet_cols(col_letter, i+3, batch_list)
+
+        if q:
+            self.p.print_stdout(2,f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:{remaining - 1}  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}', 'threaded')
+            q.put((col_letter, i + (list_len + 3), batch_list))
+            q.put(None)
 
     def check_if_query(self, ss):
 
@@ -780,6 +749,17 @@ class XmlGen:
 
         return rows, self.hdrs
 
+    def read_input(self):
+        global msg
+        msg = sys.stdin.readline().rstrip('\r\n')
+        print(f'Do something with ({msg}) message received')
+
+    def check_stdin(self, input_queue):
+        """Thread function to check for stdin and report back input text."""
+        while True:
+            input_text = sys.stdin.readline().strip()
+            input_queue.put(input_text)
+
     def bulk_xml_func(self, sheet):
 
         self.is_query = self.check_if_query(self.ss)
@@ -803,25 +783,34 @@ class XmlGen:
                 self.p.print_stderr(2, f'Unable to view sheet data, please check the sheet is correctly shared, and the Google Sheets URL is correct')
                 return
 
-        self.check_columns_match()
+        if self.check_columns_match():
+            # Create a queue to communicate between threads
+            self.input_queue = queue.Queue()
+            # Create and start the thread to check stdin
+            stdin_thread = threading.Thread(target=self.check_stdin, args=(self.input_queue,))
+            stdin_thread.daemon = True  # Set the thread as a daemon, so it exits when the main thread ends
+            stdin_thread.start()
 
-        fast_processing = self.config['fast_processing']['split_data'].title()
-
-        if fast_processing == 'True':
-            num_threads = int(self.config['fast_processing']['num_threads'])
-            lists = self.split_rows(rows, num_threads)
-            self.p.print_stdout(2, f'Start Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
-            self.process_split_rows(lists)
-            self.p.print_stdout(2, f'Finish Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+            if self.hdrs[0] == 'FALSE':
+                self.p.print_stdout(2, "Spreadsheet run flag check box is unchecked, exiting run.")
+                self.p.print_stdout(2, "To continue run make sure Spreadsheet run flag check box is checked, and re-submit run.")
+            elif self.multi == 'True':
+                num_threads = int(self.config['fast_processing']['num_threads'])
+                lists = self.split_rows(rows[1:], num_threads)
+                self.p.print_stdout(2, f'Start Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+                self.process_split_rows(lists)
+                self.p.print_stdout(2, f'Finish Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+            else:
+                self.p.print_stdout(2, f'Start Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+                self.process_sequential_rows(rows[1:])
+                self.p.print_stdout(2, f'Finish Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
         else:
-            self.p.print_stdout(2, f'Start Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
-            self.process_sequential_rows(rows)
-            self.p.print_stdout(2, f'Finish Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+            return
 
     def find_missing_hdr_items(self, xml_cols):
         missing_items = []
         for item in xml_cols:
-            if item not in self.hdrs[1:-1]:
+            if item not in self.hdrs:
                 if item == 'ReplaceSourceCounter':
                     continue
                 else:
@@ -858,6 +847,9 @@ class XmlGen:
         missing_items = self.find_missing_hdr_items(xml_headers_list)
         if missing_items:
             self.p.print_stderr(2, f'missing columns {missing_items}')
+            return False
+        else:
+            return True
 
     def exe_sheet(self):
 
@@ -919,7 +911,6 @@ class XmlGen:
         return (outcome, req_id, failure_string)
 
     def update_sheet_cols(self, col_letter, count, progress):
-
         notified = False
         while True:
             try:
@@ -1277,6 +1268,7 @@ if __name__ == '__main__':
     parser.add_argument('-fail', '--only_failures', default=False)
     parser.add_argument('-cont', '--cont', default=False)
     parser.add_argument('-local', '--local', default=False)
+    parser.add_argument('-multi', '--multi', default=False)
 
     args = parser.parse_args()
 
@@ -1293,6 +1285,7 @@ if __name__ == '__main__':
     part_way = args.cont
     local = args.local
     port = args.port
+    multi = args.multi
 
     try:
         service = build('sheets', 'v4', credentials=creds)
@@ -1319,7 +1312,7 @@ if __name__ == '__main__':
         print('Starting XML Generator')
         #stdoutOrigin = sys.stdout
         #sys.stdout = open("C:/logs/log.txt", "w")
-    xg = XmlGen(config, xml_name, service, webui, ss, tab, user, port, auth, sheet, only_failures, part_way, local)
+    xg = XmlGen(config, xml_name, service, webui, ss, tab, user, port, auth, sheet, only_failures, part_way, local, multi)
     #try:
     xg.exe_sheet()
     #except Exception as e:
