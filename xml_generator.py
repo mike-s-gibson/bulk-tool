@@ -640,36 +640,39 @@ class XmlGen:
 
 
                 if len(batch_list) >= self.batch_ul:
-                    if not self.input_queue.empty():
-                        input_text = self.input_queue.get()
-                        if input_text.startswith('SLEEP'):
-                            try:
-                                in_run_throttle = float(input_text.split(':')[1])
-                                self.p.print_stdout(2, f"Received SLEEP notification, each iteration will now sleep for - {in_run_throttle} seconds")
-                                self.p.print_stdout(2, f"To reset SLEEP notification, send SLEEP:0 to stdin")
-                            except ValueError:
-                                self.p.print_stdout(2, f"Received incompatible SLEEP notification - number must be an int or a float, run will continue")
-                                self.p.print_stdout(2, f"SLEEP notification example - SLEEP:0.2")
-                        if input_text.startswith('STOP'):
-                            self.p.print_stdout(2, "Received STOP run notifictation, exiting run")
-                            break
-                        if input_text.startswith('PAUSE'):
-                            self.p.print_stdout(2, "Received PAUSE run notifictation, pausing run")
-                            self.p.print_stdout(2, "To un-pause the run send CONTINUE to stdin (may take up to 30 seconds to continue")
-                            while True:
-                                input_text = self.input_queue.get()
-                                if input_text.startswith('CONTINUE'):
-                                    self.p.print_stdout(2, "Received CONTINUE run notifictation, continuing run")
-                                    break
-                                else:
-                                    time.sleep(30)
-
 
                     elapsed_time = time.time() - loop_start_time
                     estimated_completion_time_in_seconds = (elapsed_time / i) * (total_rows - i)
                     estimated_date_time = datetime.now() + timedelta(seconds=estimated_completion_time_in_seconds)
 
                     if not q:
+                        if not self.input_queue.empty():
+                            input_text = self.input_queue.get()
+                            if input_text.startswith('SLEEP'):
+                                try:
+                                    in_run_throttle = float(input_text.split(':')[1])
+                                    self.p.print_stdout(2,
+                                                        f"Received SLEEP notification, each iteration will now sleep for - {in_run_throttle} seconds")
+                                    self.p.print_stdout(2, f"To reset SLEEP notification, send SLEEP:0 to stdin")
+                                except ValueError:
+                                    self.p.print_stdout(2,
+                                                        f"Received incompatible SLEEP notification - number must be an int or a float, run will continue")
+                                    self.p.print_stdout(2, f"SLEEP notification example - SLEEP:0.2")
+                            if input_text.startswith('STOP'):
+                                self.p.print_stdout(2, "Received STOP run notifictation, exiting run")
+                                break
+                            if input_text.startswith('PAUSE'):
+                                self.p.print_stdout(2, "Received PAUSE run notifictation, pausing run")
+                                self.p.print_stdout(2,
+                                                    "To un-pause the run send CONTINUE to stdin (may take up to 30 seconds to continue)")
+                                while True:
+                                    input_text = self.input_queue.get()
+                                    if input_text.startswith('CONTINUE'):
+                                        self.p.print_stdout(2, "Received CONTINUE run notifictation, continuing run")
+                                        break
+                                    else:
+                                        time.sleep(30)
+
                         if not self.is_query:
                             continue_run = self.update_sheet_cols(col_letter, i+3, batch_list)
                             batch_list.clear()
@@ -784,12 +787,6 @@ class XmlGen:
                 return
 
         if self.check_columns_match():
-            # Create a queue to communicate between threads
-            self.input_queue = queue.Queue()
-            # Create and start the thread to check stdin
-            stdin_thread = threading.Thread(target=self.check_stdin, args=(self.input_queue,))
-            stdin_thread.daemon = True  # Set the thread as a daemon, so it exits when the main thread ends
-            stdin_thread.start()
 
             if self.hdrs[0] == 'FALSE':
                 self.p.print_stdout(2, "Spreadsheet run flag check box is unchecked, exiting run.")
@@ -801,6 +798,12 @@ class XmlGen:
                 self.process_split_rows(lists)
                 self.p.print_stdout(2, f'Finish Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
             else:
+                self.input_queue = queue.Queue()
+                # Create and start the thread to check stdin
+                stdin_thread = threading.Thread(target=self.check_stdin, args=(self.input_queue,))
+                stdin_thread.daemon = True  # Set the thread as a daemon, so it exits when the main thread ends
+                stdin_thread.start()
+
                 self.p.print_stdout(2, f'Start Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
                 self.process_sequential_rows(rows[1:])
                 self.p.print_stdout(2, f'Finish Time = {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
