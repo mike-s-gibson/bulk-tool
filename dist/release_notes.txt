@@ -1,0 +1,7 @@
+XML GENERATOR Version 2.01
+
+UPDATES:	
+	1. Added STDIN functionality to allow Server side control of exe script.  These controls are:
+		STOP - this stops the run at the point of results update and script exits
+		PAUSE - this pauses the script until CONTINUE command is given to restart the run
+		SLEEP:0.5 - This throttles the run per row iteration, requires ':' to allow the script to find the splitting point, to reset sent SLEEP:0
