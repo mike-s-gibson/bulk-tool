@@ -427,6 +427,10 @@ class XmlGen:
 
     def process_sequential_rows(self, rows, list_len=None, q=None):
 
+        if not rows:
+            self.p.print_stderr(2, f'No row data available, empty dataset returned, exiting script!')
+            return
+
         i = None
         xml_body_template_esme_credit = None
         xml_body_template_esme_dual_credit = None
@@ -465,6 +469,7 @@ class XmlGen:
         total_rows = len(rows)
         loop_start_time = time.time()
 
+        xml_headers_list = self.get_all_config_headers(self.xml.lower())
         try:
             for i, row in enumerate(rows):
 
@@ -472,13 +477,38 @@ class XmlGen:
                 row_dict = dict(zip(self.hdrs, row))
 
                 if self.is_query:
-                    if any(value is None for value in row_dict.values()):
-                        fail_count += 1
-                        if q:
-                            batch_list.append([f'FAILED - row {row_dict["TRUE"]}'])
-                        else:
-                            batch_list.append([f'FAILED'])
+                    corrupted = False
+
+                    response_status = row_dict.get('responseStatus', None)
+
+                    if response_status:
+                        if isinstance(response_status, dict):
+                            process_success_flag = response_status.get('processSuccessFlag', None)
+                            if process_success_flag and self.config['requests']['run_if_response_status_true'] == 'False':
+                                self.p.print_stdout(2, f"Row {i} returning 'responseStatus.processSuccessFlag' as true, skipping row. DATA: {', '.join(f'{key} = {value}' for key, value in row_dict.items() if key in xml_headers_list)}")
+
+                                pass_count+=1
+                                if q:
+                                    batch_list.append([f'XML PREVIOUSLY ACCEPTED - row {row_dict["TRUE"]}'])
+                                else:
+                                    batch_list.append([f'XML PREVIOUSLY ACCEPTED'])
+                                continue
+
+                    for key, value in row_dict.items():
+                        if value is None or value == '' or value == 'null':
+                            if key in xml_headers_list:
+                                corrupted = True
+                                fail_count += 1
+                                if q:
+                                    batch_list.append([f'FAILED - row {row_dict["TRUE"]}'])
+                                else:
+                                    batch_list.append([f'FAILED'])
+                                break
+
+                    if corrupted:
+                        self.p.print_stderr(2, f"Missing critical row data for row {i}. DATA: {', '.join(f'{key} = {value}' for key, value in row_dict.items() if key in xml_headers_list)}")
                         continue
+
 
                 if self.part_way:
                     executed_row = row_dict.get('ATOM_result', None)
@@ -578,12 +608,12 @@ class XmlGen:
                 if self.local:
                     self.p.print_stdout(2, f"{''.join(xml_str.split())}")
 
-
                 outcome = None
-                #outcome = 'XML ACCEPTED'
 
-                try:
-                    outcome, req_id, failure_string = self.send_request(self.xml, xml_str)
+                outcome = 'XML ACCEPTED'
+
+                """try:
+                    outcome, req_id, failure_string = self.send_request(self.xml, xml_str)                        
                 except Exception as e:
                     d = dict(xml=self.xml, xml_str=''.join(xml_str.split()))
                     self.p.handle_traceback(e, d)
@@ -600,7 +630,7 @@ class XmlGen:
                             outcome, req_id, failure_string = self.send_request(self.xml, xml_str)
                     else:
                         self.p.print_stderr(1, f'SEND FAILURE: process_sequential_rows: {e}')
-                        pass
+                        pass"""
 
                 if outcome:
                     if 'ACCEPTED' in outcome:
@@ -717,13 +747,14 @@ class XmlGen:
 
         if not q:
             if self.is_query:
-                self.p.print_std(2, f'Completed {i} rows')
+                self.p.print_stdout(2, f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:0  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}')
+                self.p.print_stdout(2, f'Completed {i+1} rows')
             else:
                 self.p.print_stdout(2, f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:{remaining-1}  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}')
                 self.update_sheet_cols(col_letter, i+3, batch_list)
 
         if q:
-            self.p.print_stdout(2,f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:{remaining - 1}  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}', 'threaded')
+            self.p.print_stdout(2,f'PASS:{pass_count}  |FAIL:{fail_count}  |COMPLETED:{i + 1}  |REMAINING:{remaining-1}  |{estimated_date_time.strftime("%d/%m/%Y %H:%M")}', 'threaded')
             q.put((col_letter, i + (list_len + 3), batch_list))
             q.put(None)
 
@@ -732,7 +763,9 @@ class XmlGen:
         pattern = r'\b(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)\b.*?\b(FROM|INTO|SET)\b'
 
         try:
-            if re.match(pattern, ss, re.IGNORECASE):
+            if ss.startswith('with'):
+                return True
+            elif re.match(pattern, ss, re.IGNORECASE):
                 return True
             else:
                 return False
@@ -1331,3 +1364,7 @@ if __name__ == '__main__':
     # python xml_generator.py -user Mike.Gibson32 -xml XIPMD_IN_01 -ss "select PPMID_DeviceID as PPMIDDeviceID,ImportMPAN as ImportMPxN,CHF_DeviceID as CHFDeviceID from energy-services-prod.s_meter_reporting.V_IHD_AUTOMATION" -port 8003
     # SELECT distinct A.SERVICE_POINT as ImportMPxN,FLOW_MSN as MSN FROM `energy-services-prod.s_meter_reporting.T_OVO_NONCOMM_MORE_THAN_WEEK` as A inner join `boost-operations.Payers.tbl_Non_Payer_Services_Reasons` as B on A.SERVICE_POINT = B.Meter_Point_No where TO_DATE = '2023-05-21' and FLOW_MSN is NOT null
     # python xml_generator.py -user Mike.Gibson32 -xml XIPMD_IN_01 -ss "SELECT distinct A.SERVICE_POINT as ImportMPxN,FLOW_MSN as MSN FROM `energy-services-prod.s_meter_reporting.T_OVO_NONCOMM_MORE_THAN_WEEK` as A inner join `boost-operations.Payers.tbl_Non_Payer_Services_Reasons` as B on A.SERVICE_POINT = B.Meter_Point_No where TO_DATE = '2023-05-21' and FLOW_MSN is NOT null" -port 8003
+
+    # with NetlynkData AS(SELECT Shipment_Date,PPMID_DeviceID AS PPMIDDeviceID,ImportMPAN AS ImportMPxN,CHF_DeviceID AS CHFDeviceID,PARSE_DATE('%d/%m/%Y', REGEXP_EXTRACT(Shipment_Date, r'(\d{2}/\d{2}/\d{4})')) AS parsed_date FROM `energy-services-prod.s_meter_reporting.V_IHD_AUTOMATION` WHERE Order_Type = 'GEO2_PAYM'),responsedata AS (SELECT * FROM `data-engineering-prod.landing_bws_secure.bws_install_ppmid_response_v1`,  UNNEST (meters))select NetlynkData.*,responsedata.* from NetlynkData LEFT JOIN responsedata ON responsedata.data.InstallPPMIDResponseData.deviceId =  NetlynkData.PPMIDDeviceIDWHERE DATE(parsed_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)
+    # python xml_generator.py -user Mike.Gibson32 -xml XIPMD_IN_01 -ss "with NetlynkData AS(SELECT Shipment_Date,PPMID_DeviceID AS PPMIDDeviceID,ImportMPAN AS ImportMPxN,CHF_DeviceID AS CHFDeviceID,PARSE_DATE('%d/%m/%Y', REGEXP_EXTRACT(Shipment_Date, r'(\d{2}/\d{2}/\d{4})')) AS parsed_date FROM `energy-services-prod.s_meter_reporting.V_IHD_AUTOMATION` WHERE Order_Type = 'GEO2_PAYM' AND Order_Reference IN('OVOEC2 - 59496','OVOEC2 - 64825','OVOEC2 - 64826','OVOEC2 - 64827','OVOEC2 - 64828','OVOEC2 - 64829','OVOEC2 - 64830','OVOEC2 - 64831','OVOEC2 - 64832','OVOEC2 - 64833','OVOEC2 - 64834','OVOEC2 - 64835','OVOEC2 - 64836','OVOEC2 - 64837','OVOEC2 - 64838','OVOEC2 - 64839','OVOEC2 - 64840','OVOEC2 - 64841','OVOEC2 - 64842','OVOEC2 - 64843','OVOEC2 - 64844','OVOEC2 - 64845','OVOEC2 - 64846','OVOEC2 - 64847','OVOEC2 - 64848','OVOEC2 - 64849','OVOEC2 - 64850','OVOEC2 - 64851','OVOEC2 - 64852','OVOEC2 - 64853','OVOEC2 - 64854','OVOEC2 - 64855','OVOEC2 - 64856','OVOEC2 - 64857','OVOEC2 - 64858','OVOEC2 - 64859','OVOEC2 - 64860','OVOEC2 - 64861','OVOEC2 - 64862','OVOEC2 - 64863','OVOEC2 - 64864','OVOEC2 - 64865','OVOEC2 - 64866','OVOEC2 - 64867','OVOEC2 - 64868','OVOEC2 - 64869','OVOEC2 - 64870','OVOEC2 - 64871','OVOEC2 - 64872','OVOEC2 - 64873','OVOEC2 - 64874','OVOEC2 - 64875','OVOEC2 - 64876','OVOEC2 - 64877','OVOEC2 - 64878','OVOEC2 - 64879','OVOEC2 - 64880','OVOEC2 - 64881','OVOEC2 - 64882','OVOEC2 - 64883','OVOEC2 - 64884','OVOEC2 - 64885','OVOEC2 - 64886','OVOEC2 - 64887','OVOEC2 - 64888','OVOEC2 - 64889','OVOEC2 - 64890','OVOEC2 - 64891','OVOEC2 - 64892','OVOEC2 - 64893','OVOEC2 - 64894','OVOEC2 - 64895','OVOEC2 - 64896','OVOEC2 - 64897','OVOEC2 - 64898','OVOEC2 - 64899','OVOEC2 - 64900','OVOEC2 - 64901','OVOEC2 - 64902','OVOEC2 - 64903','OVOEC2 - 64904','OVOEC2 - 64905','OVOEC2 - 64906','OVOEC2 - 64907','OVOEC2 - 64908','OVOEC2 - 64909','OVOEC2 - 64910','OVOEC2 - 64911','OVOEC2 - 64912','OVOEC2 - 64913','OVOEC2 - 64914','OVOEC2 - 64915','OVOEC2 - 64916','OVOEC2 - 64917','OVOEC2 - 64918','OVOEC2 - 64919','OVOEC2 - 64920','OVOEC2 - 64921','OVOEC2 - 64922','OVOEC2 - 64923','OVOEC2 - 64924')),responsedata AS (SELECT * FROM `data-engineering-prod.landing_bws_secure.bws_install_ppmid_response_v1`,  UNNEST (meters) where metadata.traceToken IS NULL)select NetlynkData.*,responsedata.* from NetlynkData LEFT JOIN responsedata ON responsedata.data.InstallPPMIDResponseData.deviceId =  NetlynkData.PPMIDDeviceIDWHERE DATE(parsed_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)" -port 8003
+    #

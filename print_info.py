@@ -11,12 +11,12 @@ class Printer():
     def print_stdout(self, num, message, flag=None):
         if flag:
             if flag == 'threaded':
-                self.print_to_stream(f'[INFO-Threaded]||{num}|| {message}', sys.stdout)
+                self.print_to_stream(f'[INFO-Threaded]\t||{num}||{message}', sys.stdout)
         else:
-            self.print_to_stream(f'[INFO]||{num}|| {message}', sys.stdout)
+            self.print_to_stream(f'[INFO]\t||{num}||{message}', sys.stdout)
 
     def print_stderr(self, num, message, flag=None):
-        self.print_to_stream(f'[DEBUG]||{num}|| {message}', sys.stderr)
+        self.print_to_stream(f'[DEBUG]\t||{num}||{message}', sys.stderr)
 
     def handle_traceback(self, e=None, d=None):
         error = traceback.format_exc().split('\n')
