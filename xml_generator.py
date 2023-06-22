@@ -492,6 +492,7 @@ class XmlGen:
                                     batch_list.append([f'XML PREVIOUSLY ACCEPTED - row {row_dict["TRUE"]}'])
                                 else:
                                     batch_list.append([f'XML PREVIOUSLY ACCEPTED'])
+                                remaining = total_rows - i
                                 continue
 
                     for key, value in row_dict.items():
@@ -507,6 +508,7 @@ class XmlGen:
 
                     if corrupted:
                         self.p.print_stderr(2, f"Missing critical row data for row {i}. DATA: {', '.join(f'{key} = {value}' for key, value in row_dict.items() if key in xml_headers_list)}")
+                        remaining = total_rows - i
                         continue
 
 
@@ -523,6 +525,7 @@ class XmlGen:
                             batch_list.append([f'{executed_row} - row {row_dict["TRUE"]}'])
                         else:
                             batch_list.append([executed_row])
+                        remaining = total_rows - i
                         continue
 
                 elif self.failures:
@@ -534,10 +537,12 @@ class XmlGen:
                             batch_list.append([f'{executed_row} - row {row_dict["TRUE"]}'])
                         else:
                             batch_list.append([executed_row])
+                        remaining = total_rows - i
                         continue
 
                 if all(val is None or val == '' for val in row_dict.values()):
                     batch_list.append([''])
+                    remaining = total_rows - i
                     continue
 
                 dual_flag_item = None
@@ -610,9 +615,7 @@ class XmlGen:
 
                 outcome = None
 
-                outcome = 'XML ACCEPTED'
-
-                """try:
+                try:
                     outcome, req_id, failure_string = self.send_request(self.xml, xml_str)                        
                 except Exception as e:
                     d = dict(xml=self.xml, xml_str=''.join(xml_str.split()))
@@ -630,7 +633,7 @@ class XmlGen:
                             outcome, req_id, failure_string = self.send_request(self.xml, xml_str)
                     else:
                         self.p.print_stderr(1, f'SEND FAILURE: process_sequential_rows: {e}')
-                        pass"""
+                        pass
 
                 if outcome:
                     if 'ACCEPTED' in outcome:
@@ -743,7 +746,7 @@ class XmlGen:
 
         except Exception as e:
             self.p.handle_traceback(e)
-            self.p.print_stderr(1, F'LOOP ERROR3: process_sequential_rows: {e}')
+            self.p.print_stderr(1, f'LOOP ERROR3: process_sequential_rows: {e}')
 
         if not q:
             if self.is_query:
@@ -807,7 +810,7 @@ class XmlGen:
                 d = dict(ss=self.ss)
                 self.p.handle_traceback(e, d)
                 self.p.print_stderr(1, f'DATA ERROR: bulk_xml_func: error collecting rows: {e}')
-                self.p.print_stderr(2, f'Unable to view data, please check the sheet is correctly shared')
+                self.p.print_stderr(2, f'Unable to view data, if running from Google Sheets, please check the sheet is correctly shared, if running a query, please check query syntax')
                 return
         else:
             try:
@@ -1349,11 +1352,8 @@ if __name__ == '__main__':
         #stdoutOrigin = sys.stdout
         #sys.stdout = open("C:/logs/log.txt", "w")
     xg = XmlGen(config, xml_name, service, webui, ss, tab, user, port, auth, sheet, only_failures, part_way, local, multi)
-    #try:
-    xg.exe_sheet()
-    #except Exception as e:
-    #    print(f'CATCH ALL ERROR, {e}')
 
+    xg.exe_sheet()
 
     #if local:
     #    sys.stdout.close()
